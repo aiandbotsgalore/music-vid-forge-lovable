@@ -9,9 +9,10 @@ import CritiquePanel from "@/components/CritiquePanel";
 
 interface AnalysisDashboardProps {
   data: any;
+  videoUrl: string;
 }
 
-const AnalysisDashboard = ({ data }: AnalysisDashboardProps) => {
+const AnalysisDashboard = ({ data, videoUrl }: AnalysisDashboardProps) => {
   const [selectedCritique, setSelectedCritique] = useState(data.critiques[0]);
 
   const criticalCount = data.critiques.filter((c: any) => c.severity === "critical").length;
@@ -84,7 +85,7 @@ const AnalysisDashboard = ({ data }: AnalysisDashboardProps) => {
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Video Player */}
           <div className="lg:col-span-2">
-            <VideoPlayer />
+            <VideoPlayer videoUrl={videoUrl} />
           </div>
 
           {/* Critique List */}

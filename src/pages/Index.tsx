@@ -3,44 +3,71 @@ import { Button } from "@/components/ui/button";
 import { Upload, Film, Sparkles, ArrowRight, Play } from "lucide-react";
 import VideoUpload from "@/components/VideoUpload";
 import AnalysisDashboard from "@/components/AnalysisDashboard";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const Index = () => {
   const [hasVideo, setHasVideo] = useState(false);
-  const [analysisData, setAnalysisData] = useState(null);
+  const [videoData, setVideoData] = useState<{ url: string; name: string; duration: number } | null>(null);
+  const [analysisData, setAnalysisData] = useState<any>(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
-  const handleVideoUploaded = (videoData: any) => {
+  const handleVideoUploaded = (uploadedVideo: { url: string; name: string; duration: number }) => {
     setHasVideo(true);
-    // Trigger analysis here in future
+    setVideoData(uploadedVideo);
   };
 
-  const handleStartAnalysis = () => {
-    // Mock analysis data for demo
-    const mockData = {
-      videoTitle: "Sample Music Video",
-      duration: 245,
-      scenes: 12,
-      critiques: [
-        {
-          timestamp: "0:32-0:35",
-          severity: "critical",
-          issue: "Low visual energy during chorus peak",
-          fix: "Replace with handheld close-up, 50mm lens, shallow depth of field (f/1.4)",
-          storyboardPrompt: "Cinematic close-up portrait of artist, emotional expression, tears reflecting colored stage lights, shallow depth of field bokeh background, warm rim light from right, 50mm lens perspective, film grain texture, music video aesthetic, shot on Arri Alexa, dramatic side lighting, --ar 16:9 --style raw"
-        },
-        {
-          timestamp: "1:23-1:28",
-          severity: "critical",
-          issue: "Static wide shot during emotional vocal peak lacks intimacy",
-          fix: "Replace with handheld close-up, 50mm lens, shallow depth of field (f/1.4)",
-          storyboardPrompt: "Cinematic close-up portrait of female artist, emotional expression, tears reflecting colored stage lights, shallow depth of field bokeh background, warm rim light from right, 50mm lens perspective, film grain texture, music video aesthetic, shot on Arri Alexa, dramatic side lighting, --ar 16:9 --style raw"
+  const handleStartAnalysis = async () => {
+    if (!videoData) return;
+
+    setAnalyzing(true);
+    toast.loading("Analyzing video...");
+
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze-video', {
+        body: { 
+          videoTitle: videoData.name,
+          duration: videoData.duration
         }
-      ]
-    };
-    setAnalysisData(mockData);
+      });
+
+      if (error) throw error;
+
+      // Store analysis in database
+      const { data: dbData, error: dbError } = await supabase
+        .from('video_analyses')
+        .insert({
+          video_url: videoData.url,
+          video_title: videoData.name,
+          duration: videoData.duration,
+          scenes: data.scenes,
+          analysis_data: data
+        })
+        .select()
+        .single();
+
+      if (dbError) throw dbError;
+
+      toast.dismiss();
+      toast.success("Analysis complete!");
+
+      setAnalysisData({
+        videoTitle: videoData.name,
+        duration: videoData.duration,
+        scenes: data.scenes,
+        critiques: data.critiques
+      });
+
+    } catch (error) {
+      console.error('Analysis error:', error);
+      toast.dismiss();
+      toast.error("Failed to analyze video. Please try again.");
+      setAnalyzing(false);
+    }
   };
 
-  if (analysisData) {
-    return <AnalysisDashboard data={analysisData} />;
+  if (analysisData && videoData) {
+    return <AnalysisDashboard data={analysisData} videoUrl={videoData.url} />;
   }
 
   return (
@@ -111,9 +138,14 @@ const Index = () => {
             <VideoUpload onVideoUploaded={handleVideoUploaded} />
             {hasVideo && (
               <div className="mt-6 text-center">
-                <Button onClick={handleStartAnalysis} size="lg" className="gap-2 shadow-glow">
+                <Button 
+                  onClick={handleStartAnalysis} 
+                  size="lg" 
+                  className="gap-2 shadow-glow"
+                  disabled={analyzing}
+                >
                   <Sparkles className="h-5 w-5" />
-                  Start Analysis
+                  {analyzing ? "Analyzing..." : "Start Analysis"}
                 </Button>
               </div>
             )}

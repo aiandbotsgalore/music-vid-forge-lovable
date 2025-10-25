@@ -3,9 +3,10 @@ import { useDropzone } from "react-dropzone";
 import { Upload, Film, CheckCircle2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 interface VideoUploadProps {
-  onVideoUploaded: (videoData: any) => void;
+  onVideoUploaded: (videoData: { url: string; name: string; duration: number }) => void;
 }
 
 const VideoUpload = ({ onVideoUploaded }: VideoUploadProps) => {
@@ -13,7 +14,7 @@ const VideoUpload = ({ onVideoUploaded }: VideoUploadProps) => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (!file) return;
 
@@ -24,7 +25,7 @@ const VideoUpload = ({ onVideoUploaded }: VideoUploadProps) => {
       return;
     }
 
-    // Validate file size (max 500MB for demo)
+    // Validate file size (max 500MB)
     const maxSize = 500 * 1024 * 1024;
     if (file.size > maxSize) {
       toast.error("File too large. Maximum size is 500MB.");
@@ -32,22 +33,59 @@ const VideoUpload = ({ onVideoUploaded }: VideoUploadProps) => {
     }
 
     setUploading(true);
-    setUploadProgress(0);
+    setUploadProgress(10);
 
-    // Simulate upload progress
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setUploading(false);
-          setUploadedFile(file);
-          toast.success("Video uploaded successfully!");
-          onVideoUploaded({ name: file.name, size: file.size, type: file.type });
-          return 100;
-        }
-        return prev + 10;
+    try {
+      // Upload to Supabase Storage
+      const fileName = `${Date.now()}_${file.name}`;
+      setUploadProgress(30);
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('videos')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) throw uploadError;
+
+      setUploadProgress(60);
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('videos')
+        .getPublicUrl(fileName);
+
+      setUploadProgress(80);
+
+      // Get video duration using video element
+      const videoDuration = await new Promise<number>((resolve) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.onloadedmetadata = () => {
+          resolve(Math.floor(video.duration));
+        };
+        video.onerror = () => resolve(120); // Default 2 minutes if error
+        video.src = URL.createObjectURL(file);
       });
-    }, 300);
+
+      setUploadProgress(100);
+      setUploading(false);
+      setUploadedFile(file);
+      toast.success("Video uploaded successfully!");
+      
+      onVideoUploaded({ 
+        url: publicUrl, 
+        name: file.name,
+        duration: videoDuration
+      });
+
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error("Failed to upload video. Please try again.");
+      setUploading(false);
+      setUploadProgress(0);
+    }
   }, [onVideoUploaded]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
